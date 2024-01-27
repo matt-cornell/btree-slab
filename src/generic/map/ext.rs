@@ -5,6 +5,7 @@ use crate::generic::{
 use cc_traits::{SimpleCollectionMut, SimpleCollectionRef, Slab, SlabMut};
 use smallvec::SmallVec;
 use std::{borrow::Borrow, mem::MaybeUninit};
+use std::cmp::Ordering;
 
 /// Extended API.
 ///
@@ -34,10 +35,14 @@ pub trait BTreeExt<K, V> {
 	fn node(&self, id: usize) -> &Node<K, V>;
 
 	/// Get a reference to the value associated to the given `key` in the node `id`, if any.
-	fn get_in<Q: ?Sized>(&self, key: &Q, id: usize) -> Option<&V>
+	fn get_in<Q: ?Sized, F: Fn(&Q, &Q) -> Ordering>(
+		&self,
+		key: &Q,
+		id: usize,
+		cmp: &F,
+	) -> Option<&V>
 	where
-		K: Borrow<Q>,
-		Q: Ord;
+		K: Borrow<Q>;
 
 	/// Get a reference to the item located at the given address.
 	fn item(&self, addr: Address) -> Option<&Item<K, V>>;
@@ -178,40 +183,25 @@ pub trait BTreeExt<K, V> {
 	/// Returns `Ok(addr)` if the key is used in the tree.
 	/// If the key is not used in the tree then `Err(addr)` is returned,
 	/// where `addr` can be used to insert the missing key.
-	fn address_of<Q: ?Sized>(&self, key: &Q) -> Result<Address, Address>
+	fn address_of<Q: ?Sized, F: Fn(&Q, &Q) -> Ordering>(
+		&self,
+		key: &Q,
+		cmp: &F,
+	) -> Result<Address, Address>
 	where
-		K: Borrow<Q>,
-		Q: Ord;
+		K: Borrow<Q>;
 
 	/// Search for the address of the given key from the given node `id`.
 	///
 	/// Users should directly use [`BTreeExt::address_of`].
-	fn address_in<Q: ?Sized>(&self, id: usize, key: &Q) -> Result<Address, Address>
-	where
-		K: Borrow<Q>,
-		Q: Ord;
-
-	/// Validate the tree.
-	///
-	/// Panics if the tree is not a valid B-Tree.
-	#[cfg(debug_assertions)]
-	fn validate(&self)
-	where
-		K: Ord;
-
-	/// Validate the given node and returns the depth of the node.
-	///
-	/// Panics if the tree is not a valid B-Tree.
-	#[cfg(debug_assertions)]
-	fn validate_node(
+	fn address_in<Q: ?Sized, F: Fn(&Q, &Q) -> Ordering>(
 		&self,
 		id: usize,
-		parent: Option<usize>,
-		min: Option<&K>,
-		max: Option<&K>,
-	) -> usize
+		key: &Q,
+		cmp: &F,
+	) -> Result<Address, Address>
 	where
-		K: Ord;
+		K: Borrow<Q>;
 }
 
 /// Extended mutable API.
@@ -238,9 +228,12 @@ pub trait BTreeExtMut<K, V> {
 	fn node_mut(&mut self, id: usize) -> &mut Node<K, V>;
 
 	/// Get a mutable reference to the value associated to the given `key` in the node `id`, if any.
-	fn get_mut_in(&mut self, key: &K, id: usize) -> Option<&mut V>
-	where
-		K: Ord;
+	fn get_mut_in<F: Fn(&K, &K) -> Ordering>(
+		&mut self,
+		key: &K,
+		id: usize,
+		cmp: &F,
+	) -> Option<&mut V>;
 
 	/// Get a mutable reference to the item located at the given address.
 	fn item_mut(&mut self, addr: Address) -> Option<&mut Item<K, V>>;
@@ -290,16 +283,16 @@ pub trait BTreeExtMut<K, V> {
 	fn rebalance(&mut self, node_id: usize, addr: Address) -> Address;
 
 	/// Update a value in the given node `node_id`.
-	fn update_in<T, F>(&mut self, id: usize, key: K, action: F) -> T
+	fn update_in<T, F, F2>(&mut self, id: usize, key: K, action: F, cmp: &F2) -> T
 	where
-		K: Ord,
-		F: FnOnce(Option<V>) -> (Option<V>, T);
+		F: FnOnce(Option<V>) -> (Option<V>, T),
+		F2: Fn(&K, &K) -> Ordering;
 
 	/// Update a valud at the given address.
-	fn update_at<T, F>(&mut self, addr: Address, action: F) -> T
+	fn update_at<T, F, F2>(&mut self, addr: Address, action: F, cmp: &F2) -> T
 	where
-		K: Ord,
-		F: FnOnce(V) -> (Option<V>, T);
+		F: FnOnce(V) -> (Option<V>, T),
+		F2: Fn(&K, &K) -> Ordering;
 
 	/// Take the right-most leaf value in the given node.
 	///
@@ -329,13 +322,12 @@ where
 	}
 
 	#[inline]
-	fn get_in<Q: ?Sized>(&self, key: &Q, mut id: usize) -> Option<&V>
+	fn get_in<Q: ?Sized, F: Fn(&Q, &Q) -> Ordering>(&self, key: &Q, mut id: usize, cmp: &F) -> Option<&V>
 	where
 		K: Borrow<Q>,
-		Q: Ord,
 	{
 		loop {
-			match self.node(id).get(key) {
+			match self.node(id).get(key, cmp) {
 				Ok(value_opt) => return value_opt,
 				Err(child_id) => id = child_id,
 			}
@@ -654,78 +646,37 @@ where
 		}
 	}
 
-	fn address_of<Q: ?Sized>(&self, key: &Q) -> Result<Address, Address>
+	fn address_of<Q: ?Sized, F: Fn(&Q, &Q) -> Ordering>(
+		&self,
+		key: &Q,
+		cmp: &F,
+	) -> Result<Address, Address>
 	where
 		K: Borrow<Q>,
-		Q: Ord,
 	{
 		match self.root {
-			Some(id) => self.address_in(id, key),
+			Some(id) => self.address_in(id, key, cmp),
 			None => Err(Address::nowhere()),
 		}
 	}
 
-	fn address_in<Q: ?Sized>(&self, mut id: usize, key: &Q) -> Result<Address, Address>
+	fn address_in<Q: ?Sized, F: Fn(&Q, &Q) -> Ordering>(
+		&self,
+		mut id: usize,
+		key: &Q,
+		cmp: &F,
+	) -> Result<Address, Address>
 	where
 		K: Borrow<Q>,
-		Q: Ord,
 	{
 		loop {
-			match self.node(id).offset_of(key) {
+			match self.node(id).offset_of(key, cmp) {
 				Ok(offset) => return Ok(Address { id, offset }),
 				Err((offset, None)) => return Err(Address::new(id, offset.into())),
 				Err((_, Some(child_id))) => {
 					id = child_id;
 				}
 			}
-		}
-	}
-
-	#[cfg(debug_assertions)]
-	fn validate(&self)
-	where
-		K: Ord,
-	{
-		if let Some(id) = self.root {
-			self.validate_node(id, None, None, None);
-		}
-	}
-
-	/// Validate the given node and returns the depth of the node.
-	#[cfg(debug_assertions)]
-	fn validate_node(
-		&self,
-		id: usize,
-		parent: Option<usize>,
-		mut min: Option<&K>,
-		mut max: Option<&K>,
-	) -> usize
-	where
-		K: Ord,
-	{
-		let node = self.node(id);
-		node.validate(parent, min, max);
-
-		let mut depth = None;
-		for (i, child_id) in node.children().enumerate() {
-			let (child_min, child_max) = node.separators(i);
-			let min = child_min.or_else(|| min.take());
-			let max = child_max.or_else(|| max.take());
-
-			let child_depth = self.validate_node(child_id, Some(id), min, max);
-			match depth {
-				None => depth = Some(child_depth),
-				Some(depth) => {
-					if depth != child_depth {
-						panic!("tree not balanced")
-					}
-				}
-			}
-		}
-
-		match depth {
-			Some(depth) => depth + 1,
-			None => 0,
 		}
 	}
 }
@@ -751,16 +702,18 @@ where
 	}
 
 	#[inline]
-	fn get_mut_in<'a>(&'a mut self, key: &K, mut id: usize) -> Option<&'a mut V>
-	where
-		K: Ord,
-	{
+	fn get_mut_in<'a, F: Fn(&K, &K) -> Ordering>(
+		&'a mut self,
+		key: &K,
+		mut id: usize,
+		cmp: &F,
+	) -> Option<&'a mut V> {
 		// The borrow checker is unable to predict that `*self`
 		// is not borrowed more that once at a time.
 		// That's why we need this little unsafe pointer gymnastic.
 
 		let value_ptr = loop {
-			match self.node_mut(id).get_mut(key) {
+			match self.node_mut(id).get_mut(key, cmp) {
 				Ok(value_opt) => break value_opt.map(|value_ref| value_ref as *mut V),
 				Err(child_id) => id = child_id,
 			}
@@ -842,13 +795,13 @@ where
 		}
 	}
 
-	fn update_in<T, F>(&mut self, mut id: usize, key: K, action: F) -> T
+	fn update_in<T, F, F2>(&mut self, mut id: usize, key: K, action: F, cmp: &F2) -> T
 	where
-		K: Ord,
 		F: FnOnce(Option<V>) -> (Option<V>, T),
+		F2: Fn(&K, &K) -> Ordering,
 	{
 		loop {
-			match self.node(id).offset_of(&key) {
+			match self.node(id).offset_of(&key, cmp) {
 				Ok(offset) => unsafe {
 					let mut value = MaybeUninit::uninit();
 					let item = self.node_mut(id).item_mut(offset).unwrap();
@@ -885,10 +838,10 @@ where
 		}
 	}
 
-	fn update_at<T, F>(&mut self, addr: Address, action: F) -> T
+	fn update_at<T, F, F2>(&mut self, addr: Address, action: F, _cmp: &F2) -> T
 	where
-		K: Ord,
 		F: FnOnce(V) -> (Option<V>, T),
+		F2: Fn(&K, &K) -> Ordering,
 	{
 		unsafe {
 			let mut value = MaybeUninit::uninit();

@@ -270,14 +270,17 @@ impl<K, V> Node<K, V> {
 	}
 
 	#[inline]
-	pub fn get<Q: ?Sized>(&self, key: &Q) -> Result<Option<&V>, usize>
+	pub fn get<Q: ?Sized, F: Fn(&Q, &Q) -> Ordering>(
+		&self,
+		key: &Q,
+		cmp: &F,
+	) -> Result<Option<&V>, usize>
 	where
 		K: Borrow<Q>,
-		Q: Ord,
 	{
 		match self {
-			Node::Leaf(leaf) => Ok(leaf.get(key)),
-			Node::Internal(node) => match node.get(key) {
+			Node::Leaf(leaf) => Ok(leaf.get(key, cmp)),
+			Node::Internal(node) => match node.get(key, cmp) {
 				Ok(value) => Ok(Some(value)),
 				Err(e) => Err(e),
 			},
@@ -285,14 +288,17 @@ impl<K, V> Node<K, V> {
 	}
 
 	#[inline]
-	pub fn get_mut<Q: ?Sized>(&mut self, key: &Q) -> Result<Option<&mut V>, usize>
+	pub fn get_mut<Q: ?Sized, F: Fn(&Q, &Q) -> Ordering>(
+		&mut self,
+		key: &Q,
+		cmp: &F,
+	) -> Result<Option<&mut V>, usize>
 	where
 		K: Borrow<Q>,
-		Q: Ord,
 	{
 		match self {
-			Node::Leaf(leaf) => Ok(leaf.get_mut(key)),
-			Node::Internal(node) => match node.get_mut(key) {
+			Node::Leaf(leaf) => Ok(leaf.get_mut(key, cmp)),
+			Node::Internal(node) => match node.get_mut(key, cmp) {
 				Ok(value) => Ok(Some(value)),
 				Err(e) => Err(e),
 			},
@@ -305,17 +311,20 @@ impl<K, V> Node<K, V> {
 	/// this funtion returns the index and id of the child that may match the key,
 	/// or `Err(None)` if it is a leaf.
 	#[inline]
-	pub fn offset_of<Q: ?Sized>(&self, key: &Q) -> Result<Offset, (usize, Option<usize>)>
+	pub fn offset_of<Q: ?Sized, F: Fn(&Q, &Q) -> Ordering>(
+		&self,
+		key: &Q,
+		cmp: &F,
+	) -> Result<Offset, (usize, Option<usize>)>
 	where
 		K: Borrow<Q>,
-		Q: Ord,
 	{
 		match self {
-			Node::Internal(node) => match node.offset_of(key) {
+			Node::Internal(node) => match node.offset_of(key, cmp) {
 				Ok(i) => Ok(i),
 				Err((index, child_id)) => Err((index, Some(child_id))),
 			},
-			Node::Leaf(leaf) => match leaf.offset_of(key) {
+			Node::Leaf(leaf) => match leaf.offset_of(key, cmp) {
 				Ok(i) => Ok(i),
 				Err(index) => Err((index.unwrap(), None)),
 			},
@@ -343,20 +352,18 @@ impl<K, V> Node<K, V> {
 	/// It is assumed that the node is not free.
 	/// If it is a leaf node, there must be a free space in it for the inserted value.
 	#[inline]
-	pub fn insert_by_key(
+	pub fn insert_by_key<F: Fn(&K, &K) -> Ordering>(
 		&mut self,
 		key: K,
 		value: V,
-	) -> Result<(Offset, Option<V>), internal::InsertionError<K, V>>
-	where
-		K: Ord,
-	{
+		cmp: &F,
+	) -> Result<(Offset, Option<V>), internal::InsertionError<K, V>> {
 		match self {
-			Node::Internal(node) => match node.insert_by_key(key, value) {
+			Node::Internal(node) => match node.insert_by_key(key, value, cmp) {
 				Ok((offset, value)) => Ok((offset, Some(value))),
 				Err(e) => Err(e),
 			},
-			Node::Leaf(leaf) => Ok(leaf.insert_by_key(key, value)),
+			Node::Leaf(leaf) => Ok(leaf.insert_by_key(key, value, cmp)),
 		}
 	}
 
@@ -512,33 +519,6 @@ impl<K, V> Node<K, V> {
 		match self {
 			Node::Leaf(_) => ChildrenWithSeparators::Leaf,
 			Node::Internal(node) => node.children_with_separators(),
-		}
-	}
-
-	/// Write the label of the node in the DOT format.
-	///
-	/// Requires the `dot` feature.
-	#[cfg(feature = "dot")]
-	#[inline]
-	pub fn dot_write_label<W: std::io::Write>(&self, f: &mut W) -> std::io::Result<()>
-	where
-		K: std::fmt::Display,
-		V: std::fmt::Display,
-	{
-		match self {
-			Node::Leaf(leaf) => leaf.dot_write_label(f),
-			Node::Internal(node) => node.dot_write_label(f),
-		}
-	}
-
-	#[cfg(debug_assertions)]
-	pub fn validate(&self, parent: Option<usize>, min: Option<&K>, max: Option<&K>)
-	where
-		K: Ord,
-	{
-		match self {
-			Node::Leaf(leaf) => leaf.validate(parent, min, max),
-			Node::Internal(node) => node.validate(parent, min, max),
 		}
 	}
 }

@@ -7,6 +7,7 @@ use crate::{
 };
 use smallvec::SmallVec;
 use std::borrow::Borrow;
+use std::cmp::Ordering;
 
 #[derive(Clone)]
 pub struct Leaf<K, V> {
@@ -56,15 +57,14 @@ impl<K, V> Leaf<K, V> {
 	}
 
 	#[inline]
-	pub fn get<Q: ?Sized>(&self, key: &Q) -> Option<&V>
+	pub fn get<Q: ?Sized, F: Fn(&Q, &Q) -> Ordering>(&self, key: &Q, cmp: &F) -> Option<&V>
 	where
 		K: Borrow<Q>,
-		Q: Ord,
 	{
-		match binary_search_min(&self.items, key) {
+		match binary_search_min(&self.items, key, cmp) {
 			Some(i) => {
 				let item = &self.items[i];
-				if item.key().borrow() == key {
+				if cmp(item.key().borrow(), key) == Ordering::Equal {
 					Some(item.value())
 				} else {
 					None
@@ -75,15 +75,18 @@ impl<K, V> Leaf<K, V> {
 	}
 
 	#[inline]
-	pub fn get_mut<Q: ?Sized>(&mut self, key: &Q) -> Option<&mut V>
+	pub fn get_mut<Q: ?Sized, F: Fn(&Q, &Q) -> Ordering>(
+		&mut self,
+		key: &Q,
+		cmp: &F,
+	) -> Option<&mut V>
 	where
 		K: Borrow<Q>,
-		Q: Ord,
 	{
-		match binary_search_min(&self.items, key) {
+		match binary_search_min(&self.items, key, cmp) {
 			Some(i) => {
 				let item = &mut self.items[i];
-				if item.key().borrow() == key {
+				if cmp(item.key().borrow(), key) == Ordering::Equal {
 					Some(item.value_mut())
 				} else {
 					None
@@ -95,14 +98,17 @@ impl<K, V> Leaf<K, V> {
 
 	/// Find the offset of the item matching the given key.
 	#[inline]
-	pub fn offset_of<Q: ?Sized>(&self, key: &Q) -> Result<Offset, Offset>
+	pub fn offset_of<Q: ?Sized, F: Fn(&Q, &Q) -> Ordering>(
+		&self,
+		key: &Q,
+		cmp: &F,
+	) -> Result<Offset, Offset>
 	where
 		K: Borrow<Q>,
-		Q: Ord,
 	{
-		match binary_search_min(&self.items, key) {
+		match binary_search_min(&self.items, key, cmp) {
 			Some(i) => {
-				if self.items[i].key().borrow() == key {
+				if cmp(self.items[i].key().borrow(), key) == Ordering::Equal {
 					Ok(i.into())
 				} else {
 					Err((i + 1).into())
@@ -129,13 +135,15 @@ impl<K, V> Leaf<K, V> {
 	}
 
 	#[inline]
-	pub fn insert_by_key(&mut self, key: K, mut value: V) -> (Offset, Option<V>)
-	where
-		K: Ord,
-	{
-		match binary_search_min(&self.items, &key) {
+	pub fn insert_by_key<F: Fn(&K, &K) -> Ordering>(
+		&mut self,
+		key: K,
+		mut value: V,
+		cmp: &F,
+	) -> (Offset, Option<V>) {
+		match binary_search_min(&self.items, &key, cmp) {
 			Some(i) => {
-				if self.items[i].key() == &key {
+				if cmp(self.items[i].key(), &key) == Ordering::Equal {
 					std::mem::swap(&mut value, self.items[i].value_mut());
 					(i.into(), Some(value))
 				} else {
@@ -253,61 +261,5 @@ impl<K, V> Leaf<K, V> {
 	#[inline]
 	pub fn remove_last(&mut self) -> Item<K, V> {
 		self.items.pop().unwrap()
-	}
-
-	/// Write the label of the leaf in the DOT language.
-	///
-	/// Requires the `dot` feature.
-	#[cfg(feature = "dot")]
-	#[inline]
-	pub fn dot_write_label<W: std::io::Write>(&self, f: &mut W) -> std::io::Result<()>
-	where
-		K: std::fmt::Display,
-		V: std::fmt::Display,
-	{
-		for item in &self.items {
-			write!(f, "{{{}|{}}}|", item.key(), item.value())?;
-		}
-
-		Ok(())
-	}
-
-	#[cfg(debug_assertions)]
-	pub fn validate(&self, parent: Option<usize>, min: Option<&K>, max: Option<&K>)
-	where
-		K: Ord,
-	{
-		if self.parent() != parent {
-			panic!("wrong parent")
-		}
-
-		if min.is_some() || max.is_some() {
-			// not root
-			match self.balance() {
-				Balance::Overflow => panic!("leaf is overflowing"),
-				Balance::Underflow(_) => panic!("leaf is underflowing"),
-				_ => (),
-			}
-		}
-
-		if !self.items.windows(2).all(|w| w[0] < w[1]) {
-			panic!("leaf items are not sorted")
-		}
-
-		if let Some(min) = min {
-			if let Some(item) = self.items.first() {
-				if min >= item.key() {
-					panic!("leaf item key is greater than right separator")
-				}
-			}
-		}
-
-		if let Some(max) = max {
-			if let Some(item) = self.items.last() {
-				if max <= item.key() {
-					panic!("leaf item key is less than left separator")
-				}
-			}
-		}
 	}
 }

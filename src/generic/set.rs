@@ -5,7 +5,6 @@ use std::{
 	cmp::Ordering,
 	hash::{Hash, Hasher},
 	iter::{DoubleEndedIterator, ExactSizeIterator, FromIterator, FusedIterator, Peekable},
-	ops::RangeBounds,
 };
 
 /// A set based on a B-Tree.
@@ -176,40 +175,6 @@ where
 		match self.map.get_key_value(value) {
 			Some((t, ())) => Some(t),
 			None => None,
-		}
-	}
-
-	/// Constructs a double-ended iterator over a sub-range of elements in the set.
-	/// The simplest way is to use the range syntax `min..max`, thus `range(min..max)` will
-	/// yield elements from min (inclusive) to max (exclusive).
-	/// The range may also be entered as `(Bound<T>, Bound<T>)`, so for example
-	/// `range((Excluded(4), Included(10)))` will yield a left-exclusive, right-inclusive
-	/// range from 4 to 10.
-	///
-	/// # Example
-	///
-	/// ```
-	/// use btree_slab::BTreeSet;
-	/// use std::ops::Bound::Included;
-	///
-	/// let mut set = BTreeSet::new();
-	/// set.insert(3);
-	/// set.insert(5);
-	/// set.insert(8);
-	/// for &elem in set.range((Included(&4), Included(&8))) {
-	///     println!("{}", elem);
-	/// }
-	/// assert_eq!(Some(&5), set.range(4..).next());
-	/// ```
-	#[inline]
-	pub fn range<K: ?Sized, R>(&self, range: R) -> Range<T, C>
-	where
-		K: Ord,
-		T: Borrow<K>,
-		R: RangeBounds<K>,
-	{
-		Range {
-			inner: self.map.range(range),
 		}
 	}
 
@@ -1229,36 +1194,3 @@ where
 		}
 	}
 }
-
-pub struct Range<'a, T, C> {
-	inner: map::Range<'a, T, (), C>,
-}
-
-impl<'a, T, C: Slab<Node<T, ()>>> Iterator for Range<'a, T, C>
-where
-	C: SimpleCollectionRef,
-{
-	type Item = &'a T;
-
-	#[inline]
-	fn size_hint(&self) -> (usize, Option<usize>) {
-		self.inner.size_hint()
-	}
-
-	#[inline]
-	fn next(&mut self) -> Option<&'a T> {
-		self.inner.next().map(|(k, ())| k)
-	}
-}
-
-impl<'a, T, C: Slab<Node<T, ()>>> DoubleEndedIterator for Range<'a, T, C>
-where
-	C: SimpleCollectionRef,
-{
-	#[inline]
-	fn next_back(&mut self) -> Option<&'a T> {
-		self.inner.next_back().map(|(k, ())| k)
-	}
-}
-
-impl<'a, T, C: Slab<Node<T, ()>>> FusedIterator for Range<'a, T, C> where C: SimpleCollectionRef {}

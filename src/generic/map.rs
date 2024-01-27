@@ -6,7 +6,7 @@ use std::{
 	hash::{Hash, Hasher},
 	iter::{DoubleEndedIterator, ExactSizeIterator, FromIterator, FusedIterator},
 	marker::PhantomData,
-	ops::{Bound, Index, RangeBounds},
+	ops::{Index},
 };
 
 mod entry;
@@ -244,7 +244,18 @@ where
 		Q: Ord,
 	{
 		match self.root {
-			Some(id) => self.get_in(key, id),
+			Some(id) => self.get_in(key, id, &Ord::cmp),
+			None => None,
+		}
+	}
+
+	#[inline]
+	pub fn get_with<Q: ?Sized, F: Fn(&Q, &Q) -> Ordering>(&self, key: &Q, cmp: &mut F) -> Option<&V>
+	where
+		K: Borrow<Q>,
+	{
+		match self.root {
+			Some(id) => self.get_in(key, id, cmp),
 			None => None,
 		}
 	}
@@ -270,7 +281,25 @@ where
 		K: Borrow<Q>,
 		Q: Ord,
 	{
-		match self.address_of(k) {
+		match self.address_of(k, &Ord::cmp) {
+			Ok(addr) => {
+				let item = self.item(addr).unwrap();
+				Some((item.key(), item.value()))
+			}
+			Err(_) => None,
+		}
+	}
+
+	#[inline]
+	pub fn get_key_value_with<Q: ?Sized, F: Fn(&Q, &Q) -> Ordering>(
+		&self,
+		k: &Q,
+		cmp: &mut F,
+	) -> Option<(&K, &V)>
+	where
+		K: Borrow<Q>,
+	{
+		match self.address_of(k, cmp) {
 			Ok(addr) => {
 				let item = self.item(addr).unwrap();
 				Some((item.key(), item.value()))
@@ -392,43 +421,6 @@ where
 		Values { inner: self.iter() }
 	}
 
-	/// Constructs a double-ended iterator over a sub-range of elements in the map.
-	/// The simplest way is to use the range syntax `min..max`, thus `range(min..max)` will
-	/// yield elements from min (inclusive) to max (exclusive).
-	/// The range may also be entered as `(Bound<T>, Bound<T>)`, so for example
-	/// `range((Excluded(4), Included(10)))` will yield a left-exclusive, right-inclusive
-	/// range from 4 to 10.
-	///
-	/// # Panics
-	///
-	/// Panics if range `start > end`.
-	/// Panics if range `start == end` and both bounds are `Excluded`.
-	///
-	/// # Example
-	///
-	/// ```
-	/// use btree_slab::BTreeMap;
-	/// use std::ops::Bound::Included;
-	///
-	/// let mut map = BTreeMap::new();
-	/// map.insert(3, "a");
-	/// map.insert(5, "b");
-	/// map.insert(8, "c");
-	/// for (&key, &value) in map.range((Included(&4), Included(&8))) {
-	///     println!("{}: {}", key, value);
-	/// }
-	/// assert_eq!(Some((&5, &"b")), map.range(4..).next());
-	/// ```
-	#[inline]
-	pub fn range<T: ?Sized, R>(&self, range: R) -> Range<K, V, C>
-	where
-		T: Ord,
-		K: Borrow<T>,
-		R: RangeBounds<T>,
-	{
-		Range::new(self, range)
-	}
-
 	/// Returns `true` if the map contains a value for the specified key.
 	///
 	/// The key may be any borrowed form of the map's key type, but the ordering
@@ -450,6 +442,18 @@ where
 		Q: Ord,
 	{
 		self.get(key).is_some()
+	}
+
+	#[inline]
+	pub fn contains_key_with<Q: ?Sized, F: Fn(&Q, &Q) -> Ordering>(
+		&self,
+		key: &Q,
+		cmp: &mut F,
+	) -> bool
+	where
+		K: Borrow<Q>,
+	{
+		self.get_with(key, cmp).is_some()
 	}
 
 	/// Write the tree in the DOT graph descrption language.
@@ -550,7 +554,19 @@ where
 		K: Ord,
 	{
 		match self.root {
-			Some(id) => self.get_mut_in(key, id),
+			Some(id) => self.get_mut_in(key, id, &Ord::cmp),
+			None => None,
+		}
+	}
+
+	#[inline]
+	pub fn get_mut_with<F: Fn(&K, &K) -> Ordering>(
+		&mut self,
+		key: &K,
+		cmp: &mut F,
+	) -> Option<&mut V> {
+		match self.root {
+			Some(id) => self.get_mut_in(key, id, cmp),
 			None => None,
 		}
 	}
@@ -579,7 +595,19 @@ where
 	where
 		K: Ord,
 	{
-		match self.address_of(&key) {
+		match self.address_of(&key, &Ord::cmp) {
+			Ok(addr) => Entry::Occupied(OccupiedEntry { map: self, addr }),
+			Err(addr) => Entry::Vacant(VacantEntry {
+				map: self,
+				key,
+				addr,
+			}),
+		}
+	}
+
+	#[inline]
+	pub fn entry_with<F: Fn(&K, &K) -> Ordering>(&mut self, key: K, cmp: &mut F) -> Entry<K, V, C> {
+		match self.address_of(&key, cmp) {
 			Ok(addr) => Entry::Occupied(OccupiedEntry { map: self, addr }),
 			Err(addr) => Entry::Vacant(VacantEntry {
 				map: self,
@@ -645,7 +673,23 @@ where
 	where
 		K: Ord,
 	{
-		match self.address_of(&key) {
+		match self.address_of(&key, &Ord::cmp) {
+			Ok(addr) => Some(self.replace_value_at(addr, value)),
+			Err(addr) => {
+				self.insert_exactly_at(addr, Item::new(key, value), None);
+				None
+			}
+		}
+	}
+
+	#[inline]
+	pub fn insert_with<F: Fn(&K, &K) -> Ordering>(
+		&mut self,
+		key: K,
+		value: V,
+		cmp: &mut F,
+	) -> Option<V> {
+		match self.address_of(&key, cmp) {
 			Ok(addr) => Some(self.replace_value_at(addr, value)),
 			Err(addr) => {
 				self.insert_exactly_at(addr, Item::new(key, value), None);
@@ -660,7 +704,23 @@ where
 	where
 		K: Ord,
 	{
-		match self.address_of(&key) {
+		match self.address_of(&key, &Ord::cmp) {
+			Ok(addr) => Some(self.replace_at(addr, key, value)),
+			Err(addr) => {
+				self.insert_exactly_at(addr, Item::new(key, value), None);
+				None
+			}
+		}
+	}
+
+	#[inline]
+	pub fn replace_with<F: Fn(&K, &K) -> Ordering>(
+		&mut self,
+		key: K,
+		value: V,
+		cmp: &mut F,
+	) -> Option<(K, V)> {
+		match self.address_of(&key, cmp) {
 			Ok(addr) => Some(self.replace_at(addr, key, value)),
 			Err(addr) => {
 				self.insert_exactly_at(addr, Item::new(key, value), None);
@@ -737,7 +797,25 @@ where
 		K: Borrow<Q>,
 		Q: Ord,
 	{
-		match self.address_of(key) {
+		match self.address_of(key, &Ord::cmp) {
+			Ok(addr) => {
+				let (item, _) = self.remove_at(addr).unwrap();
+				Some(item.into_value())
+			}
+			Err(_) => None,
+		}
+	}
+
+	#[inline]
+	pub fn remove_with<Q: ?Sized, F: Fn(&Q, &Q) -> Ordering>(
+		&mut self,
+		key: &Q,
+		cmp: &mut F,
+	) -> Option<V>
+	where
+		K: Borrow<Q>,
+	{
+		match self.address_of(key, cmp) {
 			Ok(addr) => {
 				let (item, _) = self.remove_at(addr).unwrap();
 				Some(item.into_value())
@@ -770,7 +848,25 @@ where
 		K: Borrow<Q>,
 		Q: Ord,
 	{
-		match self.address_of(key) {
+		match self.address_of(key, &Ord::cmp) {
+			Ok(addr) => {
+				let (item, _) = self.remove_at(addr).unwrap();
+				Some(item.into_pair())
+			}
+			Err(_) => None,
+		}
+	}
+
+	#[inline]
+	pub fn remove_entry_with<Q: ?Sized, F: Fn(&Q, &Q) -> Ordering>(
+		&mut self,
+		key: &Q,
+		cmp: &mut F,
+	) -> Option<(K, V)>
+	where
+		K: Borrow<Q>,
+	{
+		match self.address_of(key, cmp) {
 			Ok(addr) => {
 				let (item, _) = self.remove_at(addr).unwrap();
 				Some(item.into_pair())
@@ -786,7 +882,25 @@ where
 		K: Borrow<Q>,
 		Q: Ord,
 	{
-		match self.address_of(key) {
+		match self.address_of(key, &Ord::cmp) {
+			Ok(addr) => {
+				let (item, _) = self.remove_at(addr).unwrap();
+				Some(item.into_pair())
+			}
+			Err(_) => None,
+		}
+	}
+
+	#[inline]
+	pub fn take_with<Q: ?Sized, F: Fn(&Q, &Q) -> Ordering>(
+		&mut self,
+		key: &Q,
+		cmp: &mut F,
+	) -> Option<(K, V)>
+	where
+		K: Borrow<Q>,
+	{
+		match self.address_of(key, cmp) {
 			Ok(addr) => {
 				let (item, _) = self.remove_at(addr).unwrap();
 				Some(item.into_pair())
@@ -815,7 +929,29 @@ where
 		F: FnOnce(Option<V>) -> (Option<V>, T),
 	{
 		match self.root {
-			Some(id) => self.update_in(id, key, action),
+			Some(id) => self.update_in(id, key, action, &Ord::cmp),
+			None => {
+				let (to_insert, result) = action(None);
+
+				if let Some(value) = to_insert {
+					let new_root = Node::leaf(None, Item::new(key, value));
+					self.root = Some(self.allocate_node(new_root));
+					self.len += 1;
+				}
+
+				result
+			}
+		}
+	}
+
+    #[inline]
+	pub fn update_with<T, F, F2>(&mut self, key: K, action: F, cmp: &F2) -> T
+	where
+		F: FnOnce(Option<V>) -> (Option<V>, T),
+        F2: Fn(&K, &K) -> Ordering,
+	{
+		match self.root {
+			Some(id) => self.update_in(id, key, action, cmp),
 			None => {
 				let (to_insert, result) = action(None);
 
@@ -889,44 +1025,6 @@ where
 	#[inline]
 	pub fn entries_mut(&mut self) -> EntriesMut<K, V, C> {
 		EntriesMut::new(self)
-	}
-
-	/// Constructs a mutable double-ended iterator over a sub-range of elements in the map.
-	/// The simplest way is to use the range syntax `min..max`, thus `range(min..max)` will
-	/// yield elements from min (inclusive) to max (exclusive).
-	/// The range may also be entered as `(Bound<T>, Bound<T>)`, so for example
-	/// `range((Excluded(4), Included(10)))` will yield a left-exclusive, right-inclusive
-	/// range from 4 to 10.
-	///
-	/// # Panics
-	///
-	/// Panics if range `start > end`.
-	/// Panics if range `start == end` and both bounds are `Excluded`.
-	///
-	/// # Example
-	///
-	/// ```
-	/// use btree_slab::BTreeMap;
-	///
-	/// let mut map: BTreeMap<&str, i32> = ["Alice", "Bob", "Carol", "Cheryl"]
-	///     .iter()
-	///     .map(|&s| (s, 0))
-	///     .collect();
-	/// for (_, balance) in map.range_mut("B".."Cheryl") {
-	///     *balance += 100;
-	/// }
-	/// for (name, balance) in &map {
-	///     println!("{} => {}", name, balance);
-	/// }
-	/// ```
-	#[inline]
-	pub fn range_mut<T: ?Sized, R>(&mut self, range: R) -> RangeMut<K, V, C>
-	where
-		T: Ord,
-		K: Borrow<T>,
-		R: RangeBounds<T>,
-	{
-		RangeMut::new(self, range)
 	}
 
 	/// Gets a mutable iterator over the values of the map, in order by key.
@@ -2321,225 +2419,5 @@ where
 	#[inline]
 	fn next_back(&mut self) -> Option<V> {
 		self.inner.next_back().map(|(_, v)| v)
-	}
-}
-
-fn is_valid_range<T, R>(range: &R) -> bool
-where
-	T: Ord + ?Sized,
-	R: RangeBounds<T>,
-{
-	match (range.start_bound(), range.end_bound()) {
-		(Bound::Included(start), Bound::Included(end)) => start <= end,
-		(Bound::Included(start), Bound::Excluded(end)) => start <= end,
-		(Bound::Included(_), Bound::Unbounded) => true,
-		(Bound::Excluded(start), Bound::Included(end)) => start <= end,
-		(Bound::Excluded(start), Bound::Excluded(end)) => start < end,
-		(Bound::Excluded(_), Bound::Unbounded) => true,
-		(Bound::Unbounded, _) => true,
-	}
-}
-
-pub struct Range<'a, K, V, C> {
-	/// The tree reference.
-	btree: &'a BTreeMap<K, V, C>,
-
-	/// Address of the next item or last back address.
-	addr: Address,
-
-	end: Address,
-}
-
-impl<'a, K, V, C: Slab<Node<K, V>>> Range<'a, K, V, C>
-where
-	C: SimpleCollectionRef,
-{
-	fn new<T, R>(btree: &'a BTreeMap<K, V, C>, range: R) -> Self
-	where
-		T: Ord + ?Sized,
-		R: RangeBounds<T>,
-		K: Borrow<T>,
-	{
-		if !is_valid_range(&range) {
-			panic!("Invalid range")
-		}
-
-		let addr = match range.start_bound() {
-			Bound::Included(start) => match btree.address_of(start) {
-				Ok(addr) => addr,
-				Err(addr) => addr,
-			},
-			Bound::Excluded(start) => match btree.address_of(start) {
-				Ok(addr) => btree.next_item_or_back_address(addr).unwrap(),
-				Err(addr) => addr,
-			},
-			Bound::Unbounded => btree.first_back_address(),
-		};
-
-		let end = match range.end_bound() {
-			Bound::Included(end) => match btree.address_of(end) {
-				Ok(addr) => btree.next_item_or_back_address(addr).unwrap(),
-				Err(addr) => addr,
-			},
-			Bound::Excluded(end) => match btree.address_of(end) {
-				Ok(addr) => addr,
-				Err(addr) => addr,
-			},
-			Bound::Unbounded => btree.first_back_address(),
-		};
-
-		Range { btree, addr, end }
-	}
-}
-
-impl<'a, K, V, C: Slab<Node<K, V>>> Iterator for Range<'a, K, V, C>
-where
-	C: SimpleCollectionRef,
-{
-	type Item = (&'a K, &'a V);
-
-	#[inline]
-	fn next(&mut self) -> Option<(&'a K, &'a V)> {
-		if self.addr != self.end {
-			let item = self.btree.item(self.addr).unwrap();
-			self.addr = self.btree.next_item_or_back_address(self.addr).unwrap();
-			Some((item.key(), item.value()))
-		} else {
-			None
-		}
-	}
-}
-
-impl<'a, K, V, C: Slab<Node<K, V>>> FusedIterator for Range<'a, K, V, C> where C: SimpleCollectionRef
-{}
-
-impl<'a, K, V, C: Slab<Node<K, V>>> DoubleEndedIterator for Range<'a, K, V, C>
-where
-	C: SimpleCollectionRef,
-{
-	#[inline]
-	fn next_back(&mut self) -> Option<(&'a K, &'a V)> {
-		if self.addr != self.end {
-			let addr = self.btree.previous_item_address(self.addr).unwrap();
-			let item = self.btree.item(addr).unwrap();
-			self.end = addr;
-			Some((item.key(), item.value()))
-		} else {
-			None
-		}
-	}
-}
-
-pub struct RangeMut<'a, K, V, C> {
-	/// The tree reference.
-	btree: &'a mut BTreeMap<K, V, C>,
-
-	/// Address of the next item or last back address.
-	addr: Address,
-
-	end: Address,
-}
-
-impl<'a, K, V, C: SlabMut<Node<K, V>>> RangeMut<'a, K, V, C>
-where
-	C: SimpleCollectionRef,
-	C: SimpleCollectionMut,
-{
-	fn new<T, R>(btree: &'a mut BTreeMap<K, V, C>, range: R) -> Self
-	where
-		T: Ord + ?Sized,
-		R: RangeBounds<T>,
-		K: Borrow<T>,
-	{
-		if !is_valid_range(&range) {
-			panic!("Invalid range")
-		}
-
-		let addr = match range.start_bound() {
-			Bound::Included(start) => match btree.address_of(start) {
-				Ok(addr) => addr,
-				Err(addr) => addr,
-			},
-			Bound::Excluded(start) => match btree.address_of(start) {
-				Ok(addr) => btree.next_item_or_back_address(addr).unwrap(),
-				Err(addr) => addr,
-			},
-			Bound::Unbounded => btree.first_back_address(),
-		};
-
-		let end = match range.end_bound() {
-			Bound::Included(end) => match btree.address_of(end) {
-				Ok(addr) => btree.next_item_or_back_address(addr).unwrap(),
-				Err(addr) => addr,
-			},
-			Bound::Excluded(end) => match btree.address_of(end) {
-				Ok(addr) => addr,
-				Err(addr) => addr,
-			},
-			Bound::Unbounded => btree.first_back_address(),
-		};
-
-		RangeMut { btree, addr, end }
-	}
-
-	#[inline]
-	fn next_item(&mut self) -> Option<&'a mut Item<K, V>> {
-		if self.addr != self.end {
-			let addr = self.addr;
-			self.addr = self.btree.next_item_or_back_address(addr).unwrap();
-			let item = self.btree.item_mut(addr).unwrap();
-			Some(unsafe { std::mem::transmute(item) }) // this is safe because only one mutable reference to the same item can be emitted.
-		} else {
-			None
-		}
-	}
-
-	#[inline]
-	fn next_back_item(&mut self) -> Option<&'a mut Item<K, V>> {
-		if self.addr != self.end {
-			let addr = self.btree.previous_item_address(self.addr).unwrap();
-			let item = self.btree.item_mut(addr).unwrap();
-			self.end = addr;
-			Some(unsafe { std::mem::transmute(item) }) // this is safe because only one mutable reference to the same item can be emitted.s
-		} else {
-			None
-		}
-	}
-}
-
-impl<'a, K, V, C: SlabMut<Node<K, V>>> Iterator for RangeMut<'a, K, V, C>
-where
-	C: SimpleCollectionRef,
-	C: SimpleCollectionMut,
-{
-	type Item = (&'a K, &'a mut V);
-
-	#[inline]
-	fn next(&mut self) -> Option<(&'a K, &'a mut V)> {
-		self.next_item().map(|item| {
-			let (key, value) = item.as_pair_mut();
-			(key as &'a K, value)
-		})
-	}
-}
-
-impl<'a, K, V, C: SlabMut<Node<K, V>>> FusedIterator for RangeMut<'a, K, V, C>
-where
-	C: SimpleCollectionRef,
-	C: SimpleCollectionMut,
-{
-}
-
-impl<'a, K, V, C: SlabMut<Node<K, V>>> DoubleEndedIterator for RangeMut<'a, K, V, C>
-where
-	C: SimpleCollectionRef,
-	C: SimpleCollectionMut,
-{
-	#[inline]
-	fn next_back(&mut self) -> Option<(&'a K, &'a mut V)> {
-		self.next_back_item().map(|item| {
-			let (key, value) = item.as_pair_mut();
-			(key as &'a K, value)
-		})
 	}
 }

@@ -206,15 +206,14 @@ impl<K, V> Internal<K, V> {
 	}
 
 	#[inline]
-	pub fn get<Q: ?Sized>(&self, key: &Q) -> Result<&V, usize>
+	pub fn get<Q: ?Sized, F: Fn(&Q, &Q) -> Ordering>(&self, key: &Q, cmp: &F) -> Result<&V, usize>
 	where
 		K: Borrow<Q>,
-		Q: Ord,
 	{
-		match binary_search_min(&self.other_children, key) {
+		match binary_search_min(&self.other_children, key, cmp) {
 			Some(offset) => {
 				let b = &self.other_children[offset];
-				if b.item.key().borrow() == key {
+				if cmp(b.item.key().borrow(), key) == Ordering::Equal {
 					Ok(b.item.value())
 				} else {
 					Err(b.child)
@@ -225,15 +224,18 @@ impl<K, V> Internal<K, V> {
 	}
 
 	#[inline]
-	pub fn get_mut<Q: ?Sized>(&mut self, key: &Q) -> Result<&mut V, usize>
+	pub fn get_mut<Q: ?Sized, F: Fn(&Q, &Q) -> Ordering>(
+		&mut self,
+		key: &Q,
+		cmp: &F,
+	) -> Result<&mut V, usize>
 	where
 		K: Borrow<Q>,
-		Q: Ord,
 	{
-		match binary_search_min(&self.other_children, key) {
+		match binary_search_min(&self.other_children, key, cmp) {
 			Some(offset) => {
 				let b = &mut self.other_children[offset];
-				if b.item.key().borrow() == key {
+				if cmp(b.item.key().borrow(), key) == Ordering::Equal {
 					Ok(b.item.value_mut())
 				} else {
 					Err(b.child)
@@ -248,14 +250,17 @@ impl<K, V> Internal<K, V> {
 	/// If the key matches no item in this node,
 	/// this funtion returns the index and id of the child that may match the key.
 	#[inline]
-	pub fn offset_of<Q: ?Sized>(&self, key: &Q) -> Result<Offset, (usize, usize)>
+	pub fn offset_of<Q: ?Sized, F: Fn(&Q, &Q) -> Ordering>(
+		&self,
+		key: &Q,
+		cmp: &F,
+	) -> Result<Offset, (usize, usize)>
 	where
 		K: Borrow<Q>,
-		Q: Ord,
 	{
-		match binary_search_min(&self.other_children, key) {
+		match binary_search_min(&self.other_children, key, cmp) {
 			Some(offset) => {
-				if self.other_children[offset].item.key().borrow() == key {
+				if cmp(self.other_children[offset].item.key().borrow(), key) == Ordering::Equal {
 					Ok(offset.into())
 				} else {
 					let id = self.other_children[offset].child;
@@ -300,17 +305,15 @@ impl<K, V> Internal<K, V> {
 	///
 	///
 	#[inline]
-	pub fn insert_by_key(
+	pub fn insert_by_key<F: Fn(&K, &K) -> Ordering>(
 		&mut self,
 		key: K,
 		mut value: V,
-	) -> Result<(Offset, V), InsertionError<K, V>>
-	where
-		K: Ord,
-	{
-		match binary_search_min(&self.other_children, &key) {
+		cmp: &F,
+	) -> Result<(Offset, V), InsertionError<K, V>> {
+		match binary_search_min(&self.other_children, &key, cmp) {
 			Some(i) => {
-				if self.other_children[i].item.key() == &key {
+				if cmp(self.other_children[i].item.key(), &key) == Ordering::Equal {
 					std::mem::swap(&mut value, self.other_children[i].item.value_mut());
 					Ok((i.into(), value))
 				} else {
@@ -503,46 +506,5 @@ impl<K, V> Internal<K, V> {
 		}
 
 		Ok(())
-	}
-
-	#[cfg(debug_assertions)]
-	pub fn validate(&self, parent: Option<usize>, min: Option<&K>, max: Option<&K>)
-	where
-		K: Ord,
-	{
-		if self.parent() != parent {
-			panic!("wrong parent")
-		}
-
-		if min.is_some() || max.is_some() {
-			// not root
-			match self.balance() {
-				Balance::Overflow => panic!("internal node is overflowing"),
-				Balance::Underflow(_) => panic!("internal node is underflowing"),
-				_ => (),
-			}
-		} else if self.item_count() == 0 {
-			panic!("root node is empty")
-		}
-
-		if !self.other_children.windows(2).all(|w| w[0] < w[1]) {
-			panic!("internal node items are not sorted")
-		}
-
-		if let Some(min) = min {
-			if let Some(b) = self.other_children.first() {
-				if min >= b.item.key() {
-					panic!("internal node item key is greater than right separator")
-				}
-			}
-		}
-
-		if let Some(max) = max {
-			if let Some(b) = self.other_children.last() {
-				if max <= b.item.key() {
-					panic!("internal node item key is less than left separator")
-				}
-			}
-		}
 	}
 }

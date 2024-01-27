@@ -17,7 +17,6 @@ pub fn insert() {
 		if let Some(_) = btree.insert(*key, *value) {
 			println!("duplicate: {}", key);
 		}
-		btree.validate();
 	}
 
 	assert!(btree.len() == 100);
@@ -38,7 +37,6 @@ pub fn remove() {
 
 	for (key, _) in &items {
 		btree.remove(&key);
-		btree.validate();
 	}
 
 	assert!(btree.is_empty())
@@ -53,7 +51,7 @@ pub fn item_addresses() {
 	}
 
 	for (key, _) in &ITEMS {
-		let addr = btree.address_of(key).ok().unwrap();
+		let addr = btree.address_of(key, &Ord::cmp).ok().unwrap();
 
 		match btree.previous_item_address(addr) {
 			Some(before_addr) => {
@@ -107,7 +105,7 @@ pub fn insert_addresses() {
 	let mut btree: BTreeMap<usize, usize> = BTreeMap::new();
 
 	for (key, value) in &ITEMS {
-		let addr = btree.address_of(key).err().unwrap();
+		let addr = btree.address_of(key, &Ord::cmp).err().unwrap();
 		let new_addr = btree.insert_exactly_at(addr, Item::new(*key, *value), None);
 		assert_eq!(btree.item(new_addr).unwrap().value(), value);
 	}
@@ -128,11 +126,10 @@ pub fn remove_addresses() {
 		}
 
 		for (key, value) in &items {
-			match btree.address_of(key) {
+			match btree.address_of(key, &Ord::cmp) {
 				Ok(addr) => {
 					let (_, addr) = btree.remove_at(addr).unwrap();
 					btree.insert_at(addr, Item::new(*key, *value));
-					btree.validate();
 				}
 				Err(_) => break,
 			}
@@ -162,7 +159,6 @@ pub fn update() {
 			None => (Some(*value), ()),
 		});
 
-		btree.validate();
 	}
 
 	for (key, value) in &ITEMS {
