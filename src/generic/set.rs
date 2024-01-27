@@ -151,7 +151,7 @@ where
 		self.map.contains_key(value)
 	}
 
-    #[inline]
+	#[inline]
 	pub fn contains_with<Q: ?Sized, F: Fn(&Q, &Q) -> Ordering>(&self, value: &Q, cmp: &F) -> bool
 	where
 		T: Borrow<Q>,
@@ -186,7 +186,7 @@ where
 		}
 	}
 
-    #[inline]
+	#[inline]
 	pub fn get_with<Q: ?Sized, F: Fn(&Q, &Q) -> Ordering>(&self, value: &Q, cmp: &F) -> Option<&T>
 	where
 		T: Borrow<Q>,
@@ -503,6 +503,11 @@ where
 		self.map.insert(element, ()).is_none()
 	}
 
+	#[inline]
+	pub fn insert_with<F: Fn(&T, &T) -> Ordering>(&mut self, element: T, cmp: &F) -> bool {
+		self.map.insert_with(element, (), cmp).is_none()
+	}
+
 	/// Removes a value from the set. Returns whether the value was
 	/// present in the set.
 	///
@@ -530,6 +535,14 @@ where
 		self.map.remove(value).is_some()
 	}
 
+	#[inline]
+	pub fn remove_with<Q: ?Sized, F: Fn(&Q, &Q) -> Ordering>(&mut self, value: &Q, cmp: &F) -> bool
+	where
+		T: Borrow<Q>,
+	{
+		self.map.remove_with(value, cmp).is_some()
+	}
+
 	/// Removes and returns the value in the set, if any, that is equal to the given one.
 	///
 	/// The value may be any borrowed form of the set's value type,
@@ -554,6 +567,18 @@ where
 		self.map.take(value).map(|(t, _)| t)
 	}
 
+	#[inline]
+	pub fn take_with<Q: ?Sized, F: Fn(&Q, &Q) -> Ordering>(
+		&mut self,
+		value: &Q,
+		cmp: &F,
+	) -> Option<T>
+	where
+		T: Borrow<Q>,
+	{
+		self.map.take_with(value, cmp).map(|(t, _)| t)
+	}
+
 	/// Adds a value to the set, replacing the existing value, if any, that is equal to the given
 	/// one. Returns the replaced value.
 	///
@@ -570,12 +595,18 @@ where
 	/// assert_eq!(set.get(&[][..]).unwrap().capacity(), 10);
 	/// ```
 	#[inline]
-	pub fn replace(&mut self, value: T) -> Option<T> where T: Ord {
+	pub fn replace(&mut self, value: T) -> Option<T>
+	where
+		T: Ord,
+	{
 		self.map.replace(value, ()).map(|(t, ())| t)
 	}
 
-    #[inline]
-	pub fn replace_with<F: Fn(&T, &T) -> Ordering>(&mut self, value: T, cmp: &F) -> Option<T> where T: Ord {
+	#[inline]
+	pub fn replace_with<F: Fn(&T, &T) -> Ordering>(&mut self, value: T, cmp: &F) -> Option<T>
+	where
+		T: Ord,
+	{
 		self.map.replace_with(value, (), cmp).map(|(t, ())| t)
 	}
 
@@ -675,7 +706,7 @@ where
 	#[inline]
 	pub fn append(&mut self, other: &mut Self)
 	where
-        T: Ord,
+		T: Ord,
 		C: Default,
 	{
 		self.map.append(&mut other.map);

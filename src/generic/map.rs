@@ -6,7 +6,7 @@ use std::{
 	hash::{Hash, Hasher},
 	iter::{DoubleEndedIterator, ExactSizeIterator, FromIterator, FusedIterator},
 	marker::PhantomData,
-	ops::{Index},
+	ops::Index,
 };
 
 mod entry;
@@ -445,11 +445,7 @@ where
 	}
 
 	#[inline]
-	pub fn contains_key_with<Q: ?Sized, F: Fn(&Q, &Q) -> Ordering>(
-		&self,
-		key: &Q,
-		cmp: &F,
-	) -> bool
+	pub fn contains_key_with<Q: ?Sized, F: Fn(&Q, &Q) -> Ordering>(&self, key: &Q, cmp: &F) -> bool
 	where
 		K: Borrow<Q>,
 	{
@@ -560,11 +556,7 @@ where
 	}
 
 	#[inline]
-	pub fn get_mut_with<F: Fn(&K, &K) -> Ordering>(
-		&mut self,
-		key: &K,
-		cmp: &F,
-	) -> Option<&mut V> {
+	pub fn get_mut_with<F: Fn(&K, &K) -> Ordering>(&mut self, key: &K, cmp: &F) -> Option<&mut V> {
 		match self.root {
 			Some(id) => self.get_mut_in(key, id, cmp),
 			None => None,
@@ -944,11 +936,11 @@ where
 		}
 	}
 
-    #[inline]
+	#[inline]
 	pub fn update_with<T, F, F2>(&mut self, key: K, action: F, cmp: &F2) -> T
 	where
 		F: FnOnce(Option<V>) -> (Option<V>, T),
-        F2: Fn(&K, &K) -> Ordering,
+		F2: Fn(&K, &K) -> Ordering,
 	{
 		match self.root {
 			Some(id) => self.update_in(id, key, action, cmp),

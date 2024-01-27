@@ -4,8 +4,8 @@ use crate::generic::{
 };
 use cc_traits::{SimpleCollectionMut, SimpleCollectionRef, Slab, SlabMut};
 use smallvec::SmallVec;
-use std::{borrow::Borrow, mem::MaybeUninit};
 use std::cmp::Ordering;
+use std::{borrow::Borrow, mem::MaybeUninit};
 
 /// Extended API.
 ///
@@ -322,7 +322,12 @@ where
 	}
 
 	#[inline]
-	fn get_in<Q: ?Sized, F: Fn(&Q, &Q) -> Ordering>(&self, key: &Q, mut id: usize, cmp: &F) -> Option<&V>
+	fn get_in<Q: ?Sized, F: Fn(&Q, &Q) -> Ordering>(
+		&self,
+		key: &Q,
+		mut id: usize,
+		cmp: &F,
+	) -> Option<&V>
 	where
 		K: Borrow<Q>,
 	{

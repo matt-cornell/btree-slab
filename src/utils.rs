@@ -6,7 +6,11 @@ use std::cmp::Ordering;
 ///
 /// `sorted_slice` is assumed to be sorted.
 #[inline]
-pub fn binary_search_min<T: Keyed, Q: ?Sized, F: Fn(&Q, &Q) -> Ordering>(sorted_slice: &[T], key: &Q, cmp: &F) -> Option<usize>
+pub fn binary_search_min<T: Keyed, Q: ?Sized, F: Fn(&Q, &Q) -> Ordering>(
+	sorted_slice: &[T],
+	key: &Q,
+	cmp: &F,
+) -> Option<usize>
 where
 	T::Key: Borrow<Q>,
 {

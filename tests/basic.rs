@@ -158,7 +158,6 @@ pub fn update() {
 			}
 			None => (Some(*value), ()),
 		});
-
 	}
 
 	for (key, value) in &ITEMS {
