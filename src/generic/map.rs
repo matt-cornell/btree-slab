@@ -250,7 +250,7 @@ where
 	}
 
 	#[inline]
-	pub fn get_with<Q: ?Sized, F: Fn(&Q, &Q) -> Ordering>(&self, key: &Q, cmp: &mut F) -> Option<&V>
+	pub fn get_with<Q: ?Sized, F: Fn(&Q, &Q) -> Ordering>(&self, key: &Q, cmp: &F) -> Option<&V>
 	where
 		K: Borrow<Q>,
 	{
@@ -294,7 +294,7 @@ where
 	pub fn get_key_value_with<Q: ?Sized, F: Fn(&Q, &Q) -> Ordering>(
 		&self,
 		k: &Q,
-		cmp: &mut F,
+		cmp: &F,
 	) -> Option<(&K, &V)>
 	where
 		K: Borrow<Q>,
@@ -448,7 +448,7 @@ where
 	pub fn contains_key_with<Q: ?Sized, F: Fn(&Q, &Q) -> Ordering>(
 		&self,
 		key: &Q,
-		cmp: &mut F,
+		cmp: &F,
 	) -> bool
 	where
 		K: Borrow<Q>,
@@ -563,7 +563,7 @@ where
 	pub fn get_mut_with<F: Fn(&K, &K) -> Ordering>(
 		&mut self,
 		key: &K,
-		cmp: &mut F,
+		cmp: &F,
 	) -> Option<&mut V> {
 		match self.root {
 			Some(id) => self.get_mut_in(key, id, cmp),
@@ -606,7 +606,7 @@ where
 	}
 
 	#[inline]
-	pub fn entry_with<F: Fn(&K, &K) -> Ordering>(&mut self, key: K, cmp: &mut F) -> Entry<K, V, C> {
+	pub fn entry_with<F: Fn(&K, &K) -> Ordering>(&mut self, key: K, cmp: &F) -> Entry<K, V, C> {
 		match self.address_of(&key, cmp) {
 			Ok(addr) => Entry::Occupied(OccupiedEntry { map: self, addr }),
 			Err(addr) => Entry::Vacant(VacantEntry {
@@ -687,7 +687,7 @@ where
 		&mut self,
 		key: K,
 		value: V,
-		cmp: &mut F,
+		cmp: &F,
 	) -> Option<V> {
 		match self.address_of(&key, cmp) {
 			Ok(addr) => Some(self.replace_value_at(addr, value)),
@@ -718,7 +718,7 @@ where
 		&mut self,
 		key: K,
 		value: V,
-		cmp: &mut F,
+		cmp: &F,
 	) -> Option<(K, V)> {
 		match self.address_of(&key, cmp) {
 			Ok(addr) => Some(self.replace_at(addr, key, value)),
@@ -810,7 +810,7 @@ where
 	pub fn remove_with<Q: ?Sized, F: Fn(&Q, &Q) -> Ordering>(
 		&mut self,
 		key: &Q,
-		cmp: &mut F,
+		cmp: &F,
 	) -> Option<V>
 	where
 		K: Borrow<Q>,
@@ -861,7 +861,7 @@ where
 	pub fn remove_entry_with<Q: ?Sized, F: Fn(&Q, &Q) -> Ordering>(
 		&mut self,
 		key: &Q,
-		cmp: &mut F,
+		cmp: &F,
 	) -> Option<(K, V)>
 	where
 		K: Borrow<Q>,
@@ -895,7 +895,7 @@ where
 	pub fn take_with<Q: ?Sized, F: Fn(&Q, &Q) -> Ordering>(
 		&mut self,
 		key: &Q,
-		cmp: &mut F,
+		cmp: &F,
 	) -> Option<(K, V)>
 	where
 		K: Borrow<Q>,

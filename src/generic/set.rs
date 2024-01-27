@@ -151,6 +151,14 @@ where
 		self.map.contains_key(value)
 	}
 
+    #[inline]
+	pub fn contains_with<Q: ?Sized, F: Fn(&Q, &Q) -> Ordering>(&self, value: &Q, cmp: &F) -> bool
+	where
+		T: Borrow<Q>,
+	{
+		self.map.contains_key_with(value, cmp)
+	}
+
 	/// Returns a reference to the value in the set, if any, that is equal to the given value.
 	///
 	/// The value may be any borrowed form of the set's value type,
@@ -173,6 +181,17 @@ where
 		Q: Ord,
 	{
 		match self.map.get_key_value(value) {
+			Some((t, ())) => Some(t),
+			None => None,
+		}
+	}
+
+    #[inline]
+	pub fn get_with<Q: ?Sized, F: Fn(&Q, &Q) -> Ordering>(&self, value: &Q, cmp: &F) -> Option<&T>
+	where
+		T: Borrow<Q>,
+	{
+		match self.map.get_key_value_with(value, cmp) {
 			Some((t, ())) => Some(t),
 			None => None,
 		}
@@ -431,7 +450,7 @@ where
 	}
 }
 
-impl<T: Ord, C: SlabMut<Node<T, ()>>> BTreeSet<T, C>
+impl<T, C: SlabMut<Node<T, ()>>> BTreeSet<T, C>
 where
 	C: SimpleCollectionRef,
 	C: SimpleCollectionMut,
@@ -551,8 +570,13 @@ where
 	/// assert_eq!(set.get(&[][..]).unwrap().capacity(), 10);
 	/// ```
 	#[inline]
-	pub fn replace(&mut self, value: T) -> Option<T> {
+	pub fn replace(&mut self, value: T) -> Option<T> where T: Ord {
 		self.map.replace(value, ()).map(|(t, ())| t)
+	}
+
+    #[inline]
+	pub fn replace_with<F: Fn(&T, &T) -> Ordering>(&mut self, value: T, cmp: &F) -> Option<T> where T: Ord {
+		self.map.replace_with(value, (), cmp).map(|(t, ())| t)
 	}
 
 	/// Removes the first value from the set and returns it, if any.
@@ -651,6 +675,7 @@ where
 	#[inline]
 	pub fn append(&mut self, other: &mut Self)
 	where
+        T: Ord,
 		C: Default,
 	{
 		self.map.append(&mut other.map);
